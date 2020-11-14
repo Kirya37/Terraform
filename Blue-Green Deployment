@@ -1,0 +1,110 @@
+# Цель: создать инфраструктуру, которая содержит веб-сайт (одностраничный пример), который, в свою очередь, чтобы был 
+# настроен по правилам Security Group (создать группу без-ти и открыть только порт для http трафика).
+# Загрузить приложение на 2 инстансах (установленные с автоматическим поиском самого нового образа Amazon Linux),
+# которые находятся в одном регионе, но в разных aviability зонах.
+# Создать классический балансировщик загрузки для распределения трафика. Приаттачить к load balancer ранее созданные сервера.
+# В каждой зоне создать autoscaling с максимальным количеством серверов - 4 (при возможном увеличении потока запросов).
+# Приаттачить ранее созданные сервера к данной масштабируемой группе.
+# Вывести через output актуальную ссылку на веб-ресурс.
+
+# Считаю, что данный подход гарантирует почти нулевой (а то и полный) downtime, и реализует blue/green deployment - когда
+# обновляется сервер №1, всю загрузку на себя принимает сервер №2. При успешном обновлении первого, он начинает
+# функционировать в корректном режиме, а сервер №2 тоже начинает обновление. При завершении цикла два сервера работают
+# в активном режиме. 
+
+
+provider "aws" {
+  region = "eu-central-1"
+}
+
+data "aws_availability_zones" "all_available_zones" {
+}
+
+data "aws_ami" "recent_amazon_linux" {
+  owners      = ["amazon"]
+  most_recent = true
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+}
+
+resource "aws_security_group" "My_Security_Group" {
+  name = "Dynamic Security Group"
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+    egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1" #all
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+#Provides a resource to create a new launch configuration, used for autoscaling groups. (c)
+
+resource "aws_launch_configuration" "My_Launch_Conf" {
+  image_id        = data.aws_ami.recent_amazon_linux.id
+  instance_type   = "t2.micro"
+  security_groups = [aws_security_group.My_Security_Group.id]
+  user_data       = file("Script1.sh")
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_default_subnet" "My_availability_zone-1" {
+  availability_zone = data.aws_availability_zones.all_available_zones.names[0]
+}
+
+resource "aws_default_subnet" "My_availability_zone-2" {
+  availability_zone = data.aws_availability_zones.all_available_zones.names[1]
+}
+
+resource "aws_autoscaling_group" "My_Autoscaling_Group" {
+  launch_configuration = aws_launch_configuration.My_Launch_Conf.name
+  min_size             = 2
+  max_size             = 4
+  min_elb_capacity     = 2
+  vpc_zone_identifier  = [aws_default_subnet.My_availability_zone-1.id, aws_default_subnet.My_availability_zone-2.id]
+  load_balancers       = [aws_elb.My_ELB.name]
+
+#The create_before_destroy meta-argument changes this behavior so that the new replacement object is created first, 
+#and then the prior object is destroyed only once the replacement is created. (c)
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_elb" "My_ELB" {
+  name               = "myelb"
+  availability_zones = [data.aws_availability_zones.all_available_zones.names[0], data.aws_availability_zones.all_available_zones.names[1]]
+  security_groups    = [aws_security_group.My_Security_Group.id]
+
+listener {
+    lb_port           = 80
+    lb_protocol       = "http"
+    instance_port     = 80
+    instance_protocol = "http"
+  }
+
+  health_check {
+    healthy_threshold   = 2 #если 2 пинга подряд прошло, то все ок
+    unhealthy_threshold = 2 #если 2 пинга подряд не прошло, то все плохо
+    timeout             = 3
+    target              = "HTTP:80/"
+    interval            = 5 #через каждые 5 секунд посылать проверку
+  }
+}
+
+output "URL_is" {
+  value = aws_elb.My_ELB.dns_name
+}

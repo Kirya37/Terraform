@@ -1,0 +1,30 @@
+provider "aws" {
+  region  = "eu-central-1"
+
+}
+
+data "aws_ami" "recent_amazon_linux" {
+  owners      = ["amazon"]
+  most_recent = true
+  
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+}
+
+
+output "recent_amazon_linux_ami_id" {
+  value = "${data.aws_ami.recent_amazon_linux.id}"
+}
+
+output "recent_amazon_linux_ami_name" {
+  value = "${data.aws_ami.recent_amazon_linux.name}"
+}
+
+
+----------------------------------------------------------------------
+#Outputs:
+
+#recent_amazon_linux_ami_id = ami-0f3a43fbf2d3899f7
+#recent_amazon_linux_ami_name = amzn2-ami-hvm-2.0.20191024.3-x86_64-gp2

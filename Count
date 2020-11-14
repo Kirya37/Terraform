@@ -1,0 +1,25 @@
+provider "aws" {
+  region = "eu-central-1"
+}
+
+resource "aws_instance" "Ubuntu_Server_18_04_LTS" {
+  ami           = "ami-090f10efc254eaf55"
+  instance_type = "t2.micro"
+  availability_zone = "eu-central-1a"
+  count = 2
+  tags = {
+    Name    = "My Server running Ubuntu_Server_18.04_LTS"
+    Owner   = "Kirill Dobrynin"
+  }
+}
+
+resource "aws_instance" "Amazon_Linux_2_AMI" {
+  ami           = "ami-0f3a43fbf2d3899f7"
+  instance_type = "t2.micro"
+  availability_zone = "eu-central-1b"
+  count = 3
+  tags = {
+    Name    = "My Server running Amazon_Linux_2_AMI"
+    Owner   = "Kirill Dobrynin"
+  }
+}
